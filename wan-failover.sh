@@ -1612,6 +1612,10 @@ if [[ "${configdefaultssync}" == "0" ]] &>/dev/null;then
     logger -p 6 -t "${ALIAS}" "Debug - Creating FAILBACKDELAYTIMER Default: 0"
     echo -e "FAILBACKDELAYTIMER=0" >> ${CONFIGFILE}
   fi
+  if [[ -z "$(sed -n '/\bPRIMARYWAN=\b/p' "${CONFIGFILE}")" ]] &>/dev/null;then
+    logger -p 6 -t "${ALIAS}" "Debug - Creating PRIMARYWAN Default: WAN0"
+    echo -e "PRIMARYWAN=0" >> ${CONFIGFILE}
+  fi
 
 # Cleanup Config file of deprecated options
 DEPRECATEDOPTIONS='
@@ -1637,6 +1641,21 @@ fi
 # Read Configuration File
 logger -p 6 -t "${ALIAS}" "Debug - Reading ${CONFIGFILE}"
 . ${CONFIGFILE}
+
+# Apply configured Primary WAN preference
+if [[ "${PRIMARYWAN}" == "1" ]]; then
+  if [[ "$(nvram get wan1_primary & nvramcheck)" != "1" ]]; then
+    logger -p 6 -t "${ALIAS}" "Debug - Setting WAN1 as Primary via PRIMARYWAN"
+    nvram set wan1_primary="1"
+    nvram set wan0_primary="0"
+  fi
+else
+  if [[ "$(nvram get wan0_primary & nvramcheck)" != "1" ]]; then
+    logger -p 6 -t "${ALIAS}" "Debug - Setting WAN0 as Primary via PRIMARYWAN"
+    nvram set wan0_primary="1"
+    nvram set wan1_primary="0"
+  fi
+fi
 
 # Get Global WAN Parameters
 if [[ -z "${globalwansync+x}" ]] &>/dev/null;then
@@ -1832,17 +1851,18 @@ printf "  (29) Configure Failover Block IPV6   Failover Block IPV6: " && { [[ "$
 printf "  (30) Configure Failover Timeout      Failover Timeout: ${LIGHTBLUE}${FAILOVERTIMEOUT} Seconds${NOCOLOR}\n"
 printf "  (31) Configure Conntrack Flushing    Conntrack Flushing: " && { [[ "${FLUSHCONNTRACK}" == "1" ]] &>/dev/null && printf "${GREEN}Enabled${NOCOLOR}" || printf "${RED}Disabled${NOCOLOR}" ;} && printf "\n"
 printf "  (32) Configure Failback Delay        Failback Delay Timer: ${LIGHTBLUE}${FAILBACKDELAYTIMER}${NOCOLOR}\n"
+printf "  (33) Configure Primary WAN           Primary WAN: " && { [[ "${PRIMARYWAN}" == "1" ]] && printf "${LIGHTBLUE}WAN1${NOCOLOR}" || printf "${LIGHTBLUE}WAN0${NOCOLOR}" ;} && printf "\n"
 
 if [[ "${WANSMODE}" == "lb" ]] &>/dev/null || [[ "${DEVMODE}" -ge "1" ]] &>/dev/null;then
   printf "\n  ${BOLD}Load Balance Mode Settings:${NOCOLOR}\n"
-  printf "  (33) Configure LB Rule Priority      Load Balance Rule Priority: ${LIGHTBLUE}${LBRULEPRIORITY}${NOCOLOR}\n"
-  printf "  (34) Configure OpenVPN Split Tunnel  OpenVPN Split Tunneling: " && { [[ "${OVPNSPLITTUNNEL}" == "1" ]] &>/dev/null && printf "${GREEN}Enabled${NOCOLOR}" || printf "${RED}Disabled${NOCOLOR}" ;} && printf "\n"
-  printf "  (35) Configure WAN0 OVPN Priority    WAN0 OVPN Priority: ${LIGHTBLUE}${OVPNWAN0PRIORITY}${NOCOLOR}\n"
-  printf "  (36) Configure WAN1 OVPN Priority    WAN1 OVPN Priority: ${LIGHTBLUE}${OVPNWAN1PRIORITY}${NOCOLOR}\n"
-  printf "  (37) Configure WAN0 FWMark           WAN0 FWMark: ${LIGHTBLUE}${WAN0MARK}${NOCOLOR}\n"
-  printf "  (38) Configure WAN1 FWMark           WAN1 FWMark: ${LIGHTBLUE}${WAN1MARK}${NOCOLOR}\n"
-  printf "  (39) Configure WAN0 Mask             WAN0 Mask: ${LIGHTBLUE}${WAN0MASK}${NOCOLOR}\n"
-  printf "  (40) Configure WAN1 Mask             WAN1 Mask: ${LIGHTBLUE}${WAN1MASK}${NOCOLOR}\n"
+  printf "  (34) Configure LB Rule Priority      Load Balance Rule Priority: ${LIGHTBLUE}${LBRULEPRIORITY}${NOCOLOR}\n"
+  printf "  (35) Configure OpenVPN Split Tunnel  OpenVPN Split Tunneling: " && { [[ "${OVPNSPLITTUNNEL}" == "1" ]] &>/dev/null && printf "${GREEN}Enabled${NOCOLOR}" || printf "${RED}Disabled${NOCOLOR}" ;} && printf "\n"
+  printf "  (36) Configure WAN0 OVPN Priority    WAN0 OVPN Priority: ${LIGHTBLUE}${OVPNWAN0PRIORITY}${NOCOLOR}\n"
+  printf "  (37) Configure WAN1 OVPN Priority    WAN1 OVPN Priority: ${LIGHTBLUE}${OVPNWAN1PRIORITY}${NOCOLOR}\n"
+  printf "  (38) Configure WAN0 FWMark           WAN0 FWMark: ${LIGHTBLUE}${WAN0MARK}${NOCOLOR}\n"
+  printf "  (39) Configure WAN1 FWMark           WAN1 FWMark: ${LIGHTBLUE}${WAN1MARK}${NOCOLOR}\n"
+  printf "  (40) Configure WAN0 Mask             WAN0 Mask: ${LIGHTBLUE}${WAN0MASK}${NOCOLOR}\n"
+  printf "  (41) Configure WAN1 Mask             WAN1 Mask: ${LIGHTBLUE}${WAN1MASK}${NOCOLOR}\n"
 fi
 
 # Unset Variables
@@ -2482,7 +2502,19 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} FAILBACKDELAYTIMER=|${SETFAILBACKDELAYTIMER}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '33')      # LBRULEPRIORITY
+  '33')      # PRIMARYWAN
+  while true &>/dev/null;do
+    read -p "Set Default Primary WAN [0=WAN0,1=WAN1]: " value
+    value=${value//[$'\t\r\n']/}
+    case ${value} in
+      0|1 ) SETPRIMARYWAN="${value}"; break;;
+      * ) echo -e "${RED}Invalid Selection!!! ***Enter 0 for WAN0 or 1 for WAN1***${NOCOLOR}"
+    esac
+  done
+  NEWVARIABLES="${NEWVARIABLES} PRIMARYWAN=|${SETPRIMARYWAN}"
+  [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
+  ;;
+  '34')      # LBRULEPRIORITY
   while true &>/dev/null;do
     read -p "Configure Load Balance Rule Priority - This defines the IP Rule priority for Load Balance Mode, it is recommended to leave this default unless necessary to change: " value
     value=${value//[$'\t\r\n']/}
@@ -2494,7 +2526,7 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} LBRULEPRIORITY=|${SETLBRULEPRIORITY}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '34')      # OVPNSPLITTUNNEL
+  '35')      # OVPNSPLITTUNNEL
   while true &>/dev/null;do
     read -p "Do you want to enable OpenVPN Split Tunneling? This will enable or disable OpenVPN Split Tunneling while in Load Balance Mode: ***Enter Y for Yes or N for No***" yn
     yn=${yn//[$'\t\r\n']/}
@@ -2507,7 +2539,7 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} OVPNSPLITTUNNEL=|${SETOVPNSPLITTUNNEL}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '35')      # OVPNWAN0PRIORITY
+  '36')      # OVPNWAN0PRIORITY
   while true &>/dev/null;do
     read -p "Configure OpenVPN WAN0 Priority - This defines the OpenVPN Tunnel Priority for WAN0 if OVPNSPLITTUNNEL is Disabled: " value
     value=${value//[$'\t\r\n']/}
@@ -2519,7 +2551,7 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} OVPNWAN0PRIORITY=|${SETOVPNWAN0PRIORITY}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '36')      # OVPNWAN1PRIORITY
+  '37')      # OVPNWAN1PRIORITY
   while true &>/dev/null;do
     read -p "Configure OpenVPN WAN1 Priority - This defines the OpenVPN Tunnel Priority for WAN1 if OVPNSPLITTUNNEL is Disabled: " value
     value=${value//[$'\t\r\n']/}
@@ -2531,7 +2563,7 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} OVPNWAN1PRIORITY=|${SETOVPNWAN1PRIORITY}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '37')      # WAN0MARK
+  '38')      # WAN0MARK
   while true &>/dev/null;do
     read -p "Configure WAN0 FWMark - This defines the WAN0 FWMark for Load Balance Mode: " value
     value=${value//[$'\t\r\n']/}
@@ -2548,7 +2580,7 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} WAN0MARK=|${SETWAN0MARK}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '38')      # WAN1MARK
+  '39')      # WAN1MARK
   while true &>/dev/null;do
     read -p "Configure WAN1 FWMark - This defines the WAN1 FWMark for Load Balance Mode: " value
     value=${value//[$'\t\r\n']/}
@@ -2565,7 +2597,7 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} WAN1MARK=|${SETWAN1MARK}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '39')      # WAN0MASK
+  '40')      # WAN0MASK
   while true &>/dev/null;do
     read -p "Configure WAN0 Mask - This defines the WAN0 Mask for Load Balance Mode: " value
     value=${value//[$'\t\r\n']/}
@@ -2582,7 +2614,7 @@ NEWVARIABLES="${NEWVARIABLES} FAILOVERTIMEOUT=|${SETFAILOVERTIMEOUT}"
   NEWVARIABLES="${NEWVARIABLES} WAN0MASK=|${SETWAN0MASK}"
   [[ "${RESTARTREQUIRED}" == "0" ]] &>/dev/null && RESTARTREQUIRED="1"
   ;;
-  '40')      # WAN1MASK
+  '41')      # WAN1MASK
   while true &>/dev/null;do
     read -p "Configure WAN1 Mask - This defines the WAN1 Mask for Load Balance Mode: " value
     value=${value//[$'\t\r\n']/}
